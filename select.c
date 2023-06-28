@@ -64,8 +64,12 @@ void listRoomsServer(struct Room rooms[]) {
   strcat(roomMessage, "\n");
 
   printf("%s", roomMessage);
-
 };
+
+void clearBuffer() {
+    int c;
+    for(int c; (c = getchar()) != '\n' && c != EOF; );
+}
 
 void handleNewClient(struct Room rooms[], int newfd, int *fdmax) {
   int roomIndex = -1;
@@ -223,8 +227,10 @@ void createRoom(struct Room rooms[]) {
   int maxRoomClients;
   printf("Digite o nome da sala: ");
   scanf("%s", name);
-  printf("Digite o número máximo de usuários da sala\n");
+  clearBuffer();
+  printf("Digite o número máximo de usuários da sala: ");
   scanf("%d", &maxRoomClients);
+  clearBuffer();
 
   int roomNumber = currentMaxRooms + 1;
   rooms[currentMaxRooms].roomNumber = roomNumber;
@@ -271,23 +277,41 @@ void deleteRoom(struct Room rooms[]) {
   printf("Sala com ID \"%d\" deletada com sucesso.\n", roomNumber);
 }
 
+void listUsersFromRoom(struct Room room) {
+  char message[MAX_MESSAGE_SIZE];
+  if (room.numClients == 0) {
+    printf("Nao ha ninguem na sala");
+    return;
+  }
+
+  printf("Lista de usuário da sala %s (id %d)\n", room.name, room.roomNumber);
+  for (int i = 0; i < room.numClients; i++) {
+    printf("%d) %s (user id: %d)\n", i+1, room.clients[i].name, room.clients[i].fd);
+  }
+  printf("\n");
+}
+
 void* commandInput(void* arg) {
     struct ServerData *serverData = (struct ServerData*)arg;
+     int c;
     char command[MAX_COMMAND_LENGTH];
     
     while (1) {
         printf("\nEnter command: ");
-        scanf("%s", command);
-        
+        scanf("%[^\n]", command);
+        clearBuffer();
+
         if (strcmp(command, "/list") == 0) {
             listRoomsServer(serverData->rooms);
+        } else if (strncmp(command, "/users ", 7) == 0) {
+            int requestedRoom = atoi(command + 7);
+            listUsersFromRoom(serverData->rooms[requestedRoom - 1]);
         } else if (strcmp(command, "/create") == 0) {
             createRoom(serverData->rooms);
         } else if (strcmp(command, "/delete") == 0) {
             deleteRoom(serverData->rooms);
         } else if (strcmp(command, "/exit") == 0) {
             exit(0);
-            break;
         } else {
             printf("Invalid command.\n");
         }
