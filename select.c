@@ -17,11 +17,14 @@
 int currentMaxRooms = 0;
 int closedServer = 0;
 
+
+// Estrutura de dados para armazenar os clientes
 struct Client {
   int fd;
   char name[50];
 };
 
+// Estrutura de dados para armazenar as salas
 struct Room {
   int roomNumber;
   struct Client* clients;
@@ -30,6 +33,8 @@ struct Room {
   char name[MAX_ROOM_NAME_LENGTH + 1];
 };
 
+
+// Estrutura de dados para armazenar os dados do servidor
 struct ServerData {
     struct Room rooms[MAX_ROOMS];
     pthread_t commandThread;
@@ -38,6 +43,8 @@ struct ServerData {
     fd_set master;
 };
 
+
+// Função responsável pelo comando /list para o cliente listar as salas
 char *listRooms(struct Room rooms[]) {
   char tmp[MAX_ROOM_NAME_LENGTH * 25];
   char *roomMessage = malloc(currentMaxRooms * MAX_ROOM_NAME_LENGTH * 25 * sizeof(char));
@@ -52,13 +59,14 @@ char *listRooms(struct Room rooms[]) {
   return roomMessage;
 };
 
+// Função responsável pelo comando /list para o servidor listar as salas
 void listRoomsServer(struct Room rooms[]) {
   char tmp[MAX_ROOM_NAME_LENGTH * 25];
   char *roomMessage = malloc(currentMaxRooms * MAX_ROOM_NAME_LENGTH * 25 * sizeof(char));
 
-  sprintf(roomMessage, "\nSalas:\n");
+  sprintf(roomMessage, "\n[INFO] Salas:\n");
   for (int i = 0; i < currentMaxRooms; i++) {
-    sprintf(tmp, "[INFO]  Room ID %d: %s (%d/%d clients)\n", rooms[i].roomNumber, rooms[i].name, rooms[i].numClients, rooms[i].maxClients);
+    sprintf(tmp, "Room ID %d: %s (%d/%d clients)\n", rooms[i].roomNumber, rooms[i].name, rooms[i].numClients, rooms[i].maxClients);
     strcat(roomMessage, tmp);
   }
   strcat(roomMessage, "\n");
@@ -71,6 +79,8 @@ void clearBuffer() {
     for(int c; (c = getchar()) != '\n' && c != EOF; );
 }
 
+
+// Função de tratamento da conexão de novo cliente
 void handleNewClient(struct Room rooms[], int newfd, int *fdmax) {
   int roomIndex = -1;
   char message[MAX_MESSAGE_SIZE];
@@ -93,10 +103,10 @@ void handleNewClient(struct Room rooms[], int newfd, int *fdmax) {
     *fdmax = newfd;
   }
 
-  snprintf(message, sizeof(message), "\033[2J\033[HBem vindo a sala principal.\nPrimeiro defina seu nome utilizando o comando /name <NAME>. Depois disso verifique as salas disponiveis utilizando \\list e entao \\join <ROOM_ID> para entrar em uma sala.\n\n");
+  snprintf(message, sizeof(message), "\033[2J\033[HBem vindo a sala principal.\nPrimeiro defina seu nome utilizando o comando /name <NAME>. Depois disso verifique as salas disponiveis utilizando /list e entao /join <ROOM_ID> para entrar em uma sala.\n\n");
   send(newfd, message, strlen(message), 0);
 
-  printf("Novo cliente conectou-se a sala principal\n");
+  printf("[INFO] Novo cliente conectou-se a sala principal\n");
 };
 
 void sendToRoomChatExcept(struct Room rooms[], int indexRoom, int excludedUser, char *message) {
@@ -115,11 +125,13 @@ void sendToRoomChat(struct Room rooms[], int indexRoom, char *message) {
   }
 }
 
-void handleReceivedData(struct Room rooms[], int i, char *buf) {
+// Função de tratamento de dados recebidos
+void handleReceivedData(struct Room rooms[], int i, char *buf, int *fdmax, fd_set *master) {
   int indexRoom = -1;
   int indexClient = -1;
   char message[MAX_MESSAGE_SIZE];
 
+  // Identifica a sala e o cliente que enviou a mensagem
   for (int j = 0; j < currentMaxRooms && indexRoom < 0; j++) {
     for (int k = 0; k < rooms[j].numClients; k++) {
       if (rooms[j].clients[k].fd == i) {
@@ -130,13 +142,15 @@ void handleReceivedData(struct Room rooms[], int i, char *buf) {
     }
   }
 
+  // Armazena o file descriptor do cliente
   int client = rooms[indexRoom].clients[indexClient].fd;
 
+  // Tratamento para comando /name, o qual define nome do cliente
   if (strncmp(buf, "/name ", 6) == 0) {
     strncpy(rooms[indexRoom].clients[indexClient].name, buf + 6, strlen(buf) - 2);
     rooms[indexRoom].clients[indexClient].name[strlen(rooms[indexRoom].clients[indexClient].name) - 2] = '\0';
     
-    snprintf(message, sizeof(message), "[SUCCESS] Nome atualizado com sucesso: %s.\n", rooms[indexRoom].clients[indexClient].name);
+    snprintf(message, sizeof(message), "[SUCCESS] Nome atualizado com sucesso: %s.\n Utilize o comando /help para visualizar os comandos disponíveis\n", rooms[indexRoom].clients[indexClient].name);
     send(client, message, strlen(message), 0);
   } else {
     if (rooms[indexRoom].clients[indexClient].name[0] == '\0') {
@@ -146,53 +160,101 @@ void handleReceivedData(struct Room rooms[], int i, char *buf) {
     }
 
     if (buf[0] == '/') {
+      // Tratamento para comando /list, o qual lista as salas disponiveis e numero de clientes em cada uma
       if (strncmp(buf, "/list", 5) == 0) {
-        printf("Cliente %d na sala %d executou o comando /list\n", i, rooms[indexRoom].roomNumber);
+        printf("[INFO] Cliente %d na sala %d executou o comando /list\n", i, rooms[indexRoom].roomNumber);
         char *message = listRooms(rooms);
         send(client, message, strlen(message), 0);
+
+        // Tratamento para comando /join, o qual troca o cliente de sala
       } else if (strncmp(buf, "/join ", 6) == 0) {
-        printf("Cliente %d na sala %d executou o comando /join\n", i, rooms[indexRoom].roomNumber);
+        printf("[INFO] Cliente %d na sala %d executou o comando /join\n", i, rooms[indexRoom].roomNumber);
         int requestedRoom = atoi(buf + 6);
         if (requestedRoom > 0 && requestedRoom <= currentMaxRooms && rooms[requestedRoom - 1].numClients < rooms[requestedRoom - 1].maxClients) {
-          rooms[indexRoom].clients[indexClient].fd = -1;
-          rooms[indexRoom].numClients--;
 
+          // Adiciona o cliente na sala desejada
           int clientIndex = rooms[requestedRoom - 1].numClients;
           rooms[requestedRoom - 1].clients[clientIndex].fd = i;
           strcpy(rooms[requestedRoom - 1].clients[clientIndex].name, rooms[indexRoom].clients[indexClient].name);
-
           rooms[requestedRoom - 1].numClients++;
 
-          snprintf(message, sizeof(message), "\033[2J\033[H[SUCCESS] Conectado a sala %d.\n\nBem vindo a sala %d.\nComandos disponiveis:\n  \\join: Troca de sala\n  \\list: Lista todas as salas disponiveis\n  \\name: Trocar de nome de usuario\n  \\leave: Sair para sala principal\n\n", requestedRoom, requestedRoom);
+          // Remove o cliente da sala antiga
+          for(int i = indexClient; i < rooms[indexRoom].numClients; i++) {
+            rooms[indexRoom].clients[i] = rooms[indexRoom].clients[i + 1];
+          }
+          rooms[indexRoom].clients[rooms[indexRoom].numClients].fd = -1;
+          rooms[indexRoom].clients[rooms[indexRoom].numClients].name[0] = '\0';
+          rooms[indexRoom].numClients--;
+
+          snprintf(message, sizeof(message), "\033[2J\033[H[SUCCESS] Conectado a sala %d.\n\nBem vindo a sala %d.\nComandos disponiveis:\n  /join: Troca de sala\n  /list: Lista todas as salas disponiveis\n  /name: Trocar de nome de usuario\n  /leave: Sair para sala principal\n  /help: Visualizar comandos disponíveis\n\n", requestedRoom, requestedRoom);
           send(client, message, strlen(message), 0);
-          printf("Client %d switched to Room %d\n", i, requestedRoom - 1);
+          printf("[INFO] Client %d switched to Room %d\n", i, requestedRoom - 1);
+
         } else {
           snprintf(message, sizeof(message), "[ERROR] Sala invalida.\n");
           send(client, message, strlen(message), 0);
         }
+
+        // Tratamento para comando /leave, o qual retorna o cliente para a sala principal (lounge)
       } else if (strncmp(buf, "/leave", 5) == 0) {
-        printf("Cliente %d na sala %d executou o comando /leave\n", i, rooms[indexRoom].roomNumber);
+        printf("[INFO] Cliente %d na sala %d executou o comando /leave\n", i, rooms[indexRoom].roomNumber);
         if (indexRoom == 0) {
           snprintf(message, sizeof(message), "[ERROR] Você já está na sala principal.\n");          
           send(client, message, strlen(message), 0);
           return;
         }
 
-        rooms[indexRoom].numClients--;
-        rooms[indexRoom].clients[indexClient].fd = -1;
-
-        rooms[0].numClients++;
+        // Adiciona o cliente na sala principal
         rooms[0].clients[rooms[0].numClients].fd = i;
         strcpy(rooms[0].clients[rooms[0].numClients].name, rooms[indexRoom].clients[indexClient].name);
+        rooms[0].numClients++;
+
+        // Remove o cliente da sala antiga
+        for(int i = indexClient; i < rooms[indexRoom].numClients; i++) {
+          rooms[indexRoom].clients[i] = rooms[indexRoom].clients[i + 1];
+        }
+
+        rooms[indexRoom].numClients--;
+        rooms[indexRoom].clients[rooms[indexRoom].numClients].fd = -1;
 
         snprintf(message, sizeof(message), "[SUCCESS] Você saiu da sala. Você está de volta a sala principal\n");
         send(client, message, strlen(message), 0);
-        printf("Cliente %d saiu da sala %d\n", i, indexRoom);
+        printf("[INFO] Cliente %d saiu da sala %s (id %d)\n", i, rooms[indexRoom].name, indexRoom);
+
+        // Tratamento para comando /exit, o qual desconecta o cliente do servidor
+      } else if (strncmp(buf, "/exit", 4) == 0) {
+        printf("[INFO] Cliente %d na sala %d executou o comando /exit\n", i, rooms[indexRoom].roomNumber);
+
+        // Move todos os clientes uma casa para a esquerda para preencher o espaço vazio deixado pelo cliente desconectado
+        for(int i = indexClient; i < rooms[indexRoom].numClients; i++) {
+          rooms[indexRoom].clients[i] = rooms[indexRoom].clients[i + 1];
+        }
+        rooms[indexRoom].clients[rooms[indexRoom].numClients].fd = -1;
+        rooms[indexRoom].clients[rooms[indexRoom].numClients].name[0] = '\0';
+
+        rooms[indexRoom].numClients--;
+
+        snprintf(message, sizeof(message), "[SUCCESS] Você foi desconectado.\n");
+        send(client, message, strlen(message), 0);
+        printf("[INFO] Cliente com ID %d desconectou.\n", i);
+
+        // Fecha o socket do cliente e remove da lista de sockets 
+        fdmax = fdmax - 1; 
+        close(i);
+        FD_CLR(i, master);
+
+      // Tratamento para comando /help, o qual lista todos os comandos disponiveis
+      } else if (strncmp(buf, "/help", 4) == 0) {
+        printf("[INFO] Cliente %d na sala %d executou o comando /help\n", i, rooms[indexRoom].roomNumber);
+        snprintf(message, sizeof(message), "[INFO] Comandos disponiveis:\n  /join: Troca de sala\n  /list: Lista todas as salas disponiveis\n  /name: Trocar de nome de usuario\n  /leave: Sair para sala principal\n  /help: Visualizar comandos disponíveis\n\n");
+        send(client, message, strlen(message), 0);
       } else {
         snprintf(message, sizeof(message), "[ERROR] Comando invalido.\n");
         send(client, message, strlen(message), 0);
       }
+
     } else {
+      // Caso o cliente tente enviar uma mensagem estando na sala principal (lounge), retorna erro
       if (indexRoom == 0) {
         snprintf(message, sizeof(message), "[ERROR] Conecte-se a uma sala primeiro para enviar uma mensagem.\n");
         send(client, message, strlen(message), 0);
@@ -205,6 +267,8 @@ void handleReceivedData(struct Room rooms[], int i, char *buf) {
   }
 }
 
+
+// Função que remove um cliente de uma sala
 void removeClientFromRoom(struct Room rooms[], int fd){
   for (int i = 0; i < currentMaxRooms; i++) {
     for (int j = 0; j < rooms[i].numClients; j++) {
@@ -217,6 +281,7 @@ void removeClientFromRoom(struct Room rooms[], int fd){
   }
 }
 
+// Função que cria uma nova sala
 void createRoom(struct Room rooms[]) {
   if (currentMaxRooms == MAX_ROOMS) {
     printf("Numero maximo de salas atingido.\n");
@@ -232,6 +297,8 @@ void createRoom(struct Room rooms[]) {
   scanf("%d", &maxRoomClients);
   clearBuffer();
 
+
+  // Inicializa a sala com os dados informados
   int roomNumber = currentMaxRooms + 1;
   rooms[currentMaxRooms].roomNumber = roomNumber;
   rooms[currentMaxRooms].numClients = 0;
@@ -241,9 +308,11 @@ void createRoom(struct Room rooms[]) {
 
   currentMaxRooms++;
 
-  printf("Sala com ID \"%d\" criada com sucesso.\n", roomNumber);
+  printf("[SUCCESS] Sala com ID \"%d\" criada com sucesso.\n", roomNumber);
 }
 
+
+// Função que deleta uma sala
 void deleteRoom(struct Room rooms[]) {
   int roomNumber;
   printf("Digite o numero da sala: ");
@@ -259,6 +328,7 @@ void deleteRoom(struct Room rooms[]) {
     return;
   }
 
+  // Move todos os clientes da sala a ser deletada para a sala principal
   for (int i = rooms[roomNumber - 1].numClients - 1; i >= 0; i--) {
     rooms[0].numClients++;
     rooms[0].clients[rooms[0].numClients].fd = rooms[roomNumber - 1].clients[i].fd;
@@ -274,30 +344,43 @@ void deleteRoom(struct Room rooms[]) {
 
   currentMaxRooms--;
 
-  printf("Sala com ID \"%d\" deletada com sucesso.\n", roomNumber);
+  printf("[SUCCESS] Sala com ID \"%d\" deletada com sucesso.\n", roomNumber);
 }
 
+
+// Função que lista os clientes de uma sala
 void listUsersFromRoom(struct Room room) {
   char message[MAX_MESSAGE_SIZE];
   if (room.numClients == 0) {
-    printf("Nao ha ninguem na sala");
+    printf("[INFO] Nao ha ninguem na sala");
     return;
   }
 
-  printf("Lista de usuário da sala %s (id %d)\n", room.name, room.roomNumber);
+  printf("[INFO] Lista de usuário da sala %s (id %d)\n", room.name, room.roomNumber);
   for (int i = 0; i < room.numClients; i++) {
     printf("%d) %s (user id: %d)\n", i+1, room.clients[i].name, room.clients[i].fd);
   }
   printf("\n");
 }
 
+void printCommands() {
+  printf("\n[INFO] Comandos disponíveis:\n");
+  printf("/list - Lista as salas disponíveis\n");
+  printf("/users <id da sala> - Lista os usuários de uma sala\n");
+  printf("/create - Cria uma nova sala\n");
+  printf("/delete - Deleta uma sala\n");
+  printf("/help - Lista os comandos disponíveis\n");
+  printf("/exit - Encerra o servidor\n\n\n");
+};
+
 void* commandInput(void* arg) {
     struct ServerData *serverData = (struct ServerData*)arg;
      int c;
     char command[MAX_COMMAND_LENGTH];
+
+    printCommands();
     
     while (1) {
-        printf("\nEnter command: ");
         scanf("%[^\n]", command);
         clearBuffer();
 
@@ -312,6 +395,8 @@ void* commandInput(void* arg) {
             deleteRoom(serverData->rooms);
         } else if (strcmp(command, "/exit") == 0) {
             exit(0);
+        } else if (strcmp(command, "/help") == 0) {
+          printCommands();
         } else {
             printf("Invalid command.\n");
         }
@@ -334,7 +419,7 @@ int main(int argc, char *argv[]) {
     exit(1);
   } 
 
-  // Initialize room data
+  // Inicializa a sala principal
   serverData.rooms[0].roomNumber = 1;
   serverData.rooms[0].numClients = 0;
   snprintf(serverData.rooms[0].name, MAX_ROOM_NAME_LENGTH + 1, "Lounge");
@@ -364,30 +449,30 @@ int main(int argc, char *argv[]) {
   memset(&(myaddr.sin_zero), '\0', 8);
 
   if (bind(serverData.listener, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0) {
-    perror("bind");
+    perror("[ERROR - bind] ");
     exit(1);
   }
 
   if (listen(serverData.listener, 10) < 0) {
-    perror("listen");
+    perror("[ERROR - listen] ");
     exit(1);
   }
 
   FD_SET(serverData.listener, &(serverData.master));
   serverData.fdmax = serverData.listener;
 
-  printf("Server is running. Waiting for connections...\n");
+  printf("[INFO] Servidor rodando. Aguardando conexões...\n");
 
-  // Create command input thread
-    if (pthread_create(&(serverData.commandThread), NULL, commandInput, (void*)&serverData) != 0) {
-        perror("pthread_create");
-        exit(1);
-    }
+  // Cria a thread para receber comandos do servidor
+  if (pthread_create(&(serverData.commandThread), NULL, commandInput, (void*)&serverData) != 0) {
+      perror("[ERROR - pthread_create] ");
+      exit(1);
+  }
 
   for (;;) {
     read_fds = (serverData.master);
     if (select(serverData.fdmax + 1, &read_fds, NULL, NULL, NULL) == -1) {
-      perror("[Select]");
+      perror("[ERROR - Select] ");
       exit(1);
     }
 
@@ -403,7 +488,7 @@ int main(int argc, char *argv[]) {
             if (newfd > serverData.fdmax) {
               serverData.fdmax = newfd;
             }
-
+            // Adiciona o cliente na sala principal
             handleNewClient(serverData.rooms, newfd, &serverData.fdmax);
           }
         } else {
@@ -412,6 +497,7 @@ int main(int argc, char *argv[]) {
           if (nbytes <= 0) {
             if (nbytes == 0) {
               printf("Client %d disconnected\n", i);
+              // Remove o cliente da sala por ter se desconectado
               removeClientFromRoom(serverData.rooms, i);
               
             } else {
@@ -420,7 +506,8 @@ int main(int argc, char *argv[]) {
             close(i);
             FD_CLR(i, &(serverData.master));
           } else {
-            handleReceivedData(serverData.rooms, i, buf);
+            // Trata os dados recebidos
+            handleReceivedData(serverData.rooms, i, buf, &serverData.fdmax, &serverData.master);
           }
         }
       }
