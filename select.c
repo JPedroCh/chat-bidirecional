@@ -376,6 +376,8 @@ void printCommands() {
   printf("/exit - Encerra o servidor\n\n\n");
 };
 
+
+// Função que recebe os comandos do servidor
 void* commandInput(void* arg) {
     struct ServerData *serverData = (struct ServerData*)arg;
      int c;
@@ -434,33 +436,35 @@ int main(int argc, char *argv[]) {
   FD_ZERO(&(serverData.master));
   FD_ZERO(&read_fds);
 
-  struct timeval timeout;
-  timeout.tv_sec = 0;
-  timeout.tv_usec = 0;
-
+  // Cria o socket
   serverData.listener = socket(AF_INET, SOCK_STREAM, 0);
   if (serverData.listener < 0) {
     perror("socket");
     exit(1);
   }
 
+  // Define as opções do socket
   setsockopt(serverData.listener, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
 
+  // Configura a estrutura sockaddr_in
   myaddr.sin_family = AF_INET;
   myaddr.sin_addr.s_addr = inet_addr(argv[1]);
   myaddr.sin_port = htons(atoi(argv[2]));
   memset(&(myaddr.sin_zero), '\0', 8);
 
+  // Faz o bind do socket com a porta e o IP
   if (bind(serverData.listener, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0) {
     perror("[ERROR - bind] ");
     exit(1);
   }
 
+  // Escuta por conexões na porta especificada, com um limite de 10 conexões pendentes
   if (listen(serverData.listener, 10) < 0) {
     perror("[ERROR - listen] ");
     exit(1);
   }
 
+  // Adiciona o listener ao conjunto master
   FD_SET(serverData.listener, &(serverData.master));
   serverData.fdmax = serverData.listener;
 
@@ -474,20 +478,26 @@ int main(int argc, char *argv[]) {
 
   for (;;) {
     read_fds = (serverData.master);
+    // Espera por mudanças nos file descriptors
     if (select(serverData.fdmax + 1, &read_fds, NULL, NULL, NULL) == -1) {
       perror("[ERROR - Select] ");
       exit(1);
     }
 
     for (i = 0; i <= serverData.fdmax; i++) {
+      // Verifica se o file descriptor está no conjunto de file descriptors que teve mudanças
       if (FD_ISSET(i, &read_fds)) {
+        // Se for o listener, há uma nova conexão
         if (i == serverData.listener) {
           addrlen = sizeof(remoteaddr);
+          // Aceita a nova conexão
           newfd = accept(serverData.listener, (struct sockaddr *)&remoteaddr, &addrlen);
           if (newfd == -1) {
             perror("accept");
           } else {
+            // Adiciona o novo file descriptor ao conjunto master
             FD_SET(newfd, &(serverData.master));
+            // Atualiza o maior file descriptor
             if (newfd > serverData.fdmax) {
               serverData.fdmax = newfd;
             }
@@ -506,7 +516,9 @@ int main(int argc, char *argv[]) {
             } else {
               perror("recv");
             }
+            // Fecha o file descriptor
             close(i);
+            // Remove o file descriptor do conjunto master
             FD_CLR(i, &(serverData.master));
           } else {
             // Trata os dados recebidos
