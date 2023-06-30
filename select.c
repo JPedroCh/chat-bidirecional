@@ -43,7 +43,6 @@ struct ServerData {
     fd_set master;
 };
 
-
 // Função responsável pelo comando /list para o cliente listar as salas
 char *listRooms(struct Room rooms[]) {
   char tmp[MAX_ROOM_NAME_LENGTH * 25];
@@ -170,8 +169,16 @@ void handleReceivedData(struct Room rooms[], int i, char *buf, int *fdmax, fd_se
       } else if (strncmp(buf, "/join ", 6) == 0) {
         printf("[INFO] Cliente %d na sala %d executou o comando /join\n", i, rooms[indexRoom].roomNumber);
         int requestedRoom = atoi(buf + 6);
-        if (requestedRoom > 0 && requestedRoom <= currentMaxRooms && rooms[requestedRoom - 1].numClients < rooms[requestedRoom - 1].maxClients) {
 
+        if (requestedRoom < 1 || requestedRoom > currentMaxRooms) {
+          // Sala invalida
+          snprintf(message, sizeof(message), "[ERROR] Sala invalida.\n");
+          send(client, message, strlen(message), 0);
+        } else if (rooms[requestedRoom - 1].numClients >= rooms[requestedRoom - 1].maxClients) { 
+          // Sala Lotada
+          snprintf(message, sizeof(message), "[ERROR] Sala lotada.\n");
+          send(client, message, strlen(message), 0);
+        } else {
           // Adiciona o cliente na sala desejada
           int clientIndex = rooms[requestedRoom - 1].numClients;
           rooms[requestedRoom - 1].clients[clientIndex].fd = i;
@@ -189,12 +196,8 @@ void handleReceivedData(struct Room rooms[], int i, char *buf, int *fdmax, fd_se
           snprintf(message, sizeof(message), "\033[2J\033[H[SUCCESS] Conectado a sala %d.\n\nBem vindo a sala %d.\nComandos disponiveis:\n  /join: Troca de sala\n  /list: Lista todas as salas disponiveis\n  /name: Trocar de nome de usuario\n  /leave: Sair para sala principal\n  /help: Visualizar comandos disponíveis\n\n", requestedRoom, requestedRoom);
           send(client, message, strlen(message), 0);
           printf("[INFO] Client %d switched to Room %d\n", i, requestedRoom - 1);
-
-        } else {
-          snprintf(message, sizeof(message), "[ERROR] Sala invalida.\n");
-          send(client, message, strlen(message), 0);
         }
-
+        
         // Tratamento para comando /leave, o qual retorna o cliente para a sala principal (lounge)
       } else if (strncmp(buf, "/leave", 5) == 0) {
         printf("[INFO] Cliente %d na sala %d executou o comando /leave\n", i, rooms[indexRoom].roomNumber);
