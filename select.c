@@ -11,6 +11,7 @@
 // #define MAX_CLIENTS 10
 #define MAX_ROOMS 5
 #define MAX_ROOM_NAME_LENGTH 50
+#define MAX_ROOM_PASSWORD_LENGTH 16
 #define MAX_MESSAGE_SIZE 500
 #define MAX_COMMAND_LENGTH 50
 
@@ -30,6 +31,7 @@ struct Room {
   struct Client* clients;
   int maxClients;
   int numClients;
+  char password[MAX_ROOM_PASSWORD_LENGTH + 1];
   char name[MAX_ROOM_NAME_LENGTH + 1];
 };
 
@@ -50,7 +52,11 @@ char *listRooms(struct Room rooms[]) {
 
   sprintf(roomMessage, "\nSalas:\n");
   for (int i = 0; i < currentMaxRooms; i++) {
-    sprintf(tmp, "  Room %d: %s (%d/%d clients)\n", rooms[i].roomNumber, rooms[i].name, rooms[i].numClients, rooms[i].maxClients);
+    if (rooms[i].password[0] != '\0') {
+      sprintf(tmp, "  ID %d: %s (%d/%d clients) - REQUER SENHA\n", rooms[i].roomNumber, rooms[i].name, rooms[i].numClients, rooms[i].maxClients);
+    } else {
+      sprintf(tmp, "  ID %d: %s (%d/%d clients)\n", rooms[i].roomNumber, rooms[i].name, rooms[i].numClients, rooms[i].maxClients);
+    }
     strcat(roomMessage, tmp);
   }
   strcat(roomMessage, "\n");
@@ -168,7 +174,11 @@ void handleReceivedData(struct Room rooms[], int i, char *buf, int *fdmax, fd_se
         // Tratamento para comando /join, o qual troca o cliente de sala
       } else if (strncmp(buf, "/join ", 6) == 0) {
         printf("[INFO] Cliente %d na sala %d executou o comando /join\n", i, rooms[indexRoom].roomNumber);
-        int requestedRoom = atoi(buf + 6);
+        
+        char *passwordEntered;
+        char *joinParams = buf + sizeof("/join") - 1;
+        int requestedRoom = strtol(joinParams, &passwordEntered, 10);
+        passwordEntered++;
 
         if (requestedRoom < 1 || requestedRoom > currentMaxRooms) {
           // Sala invalida
@@ -179,6 +189,19 @@ void handleReceivedData(struct Room rooms[], int i, char *buf, int *fdmax, fd_se
           snprintf(message, sizeof(message), "[ERROR] Sala lotada.\n");
           send(client, message, strlen(message), 0);
         } else {
+          if (rooms[requestedRoom - 1].password[0] != '\0') {
+            passwordEntered[strlen(passwordEntered) - 2] = '\0';
+            if (passwordEntered[0] == '\0' || passwordEntered[0] == '\n') {
+              snprintf(message, sizeof(message), "[ERROR] Essa sala exige uma senha. Forneca a senha para entrar na sala.\n");
+              send(client, message, strlen(message), 0);
+              return;
+            } else if (strcmp(rooms[requestedRoom - 1].password, passwordEntered) != 0) {
+              snprintf(message, sizeof(message), "[ERROR] Senha incorreta\n");
+              send(client, message, strlen(message), 0);
+              return;
+            }
+          }
+
           // Adiciona o cliente na sala desejada
           int clientIndex = rooms[requestedRoom - 1].numClients;
           rooms[requestedRoom - 1].clients[clientIndex].fd = i;
@@ -193,7 +216,7 @@ void handleReceivedData(struct Room rooms[], int i, char *buf, int *fdmax, fd_se
           rooms[indexRoom].clients[rooms[indexRoom].numClients].name[0] = '\0';
           rooms[indexRoom].numClients--;
 
-          snprintf(message, sizeof(message), "\033[2J\033[H[SUCCESS] Conectado a sala %d.\n\nBem vindo a sala %d.\nComandos disponiveis:\n  /join: Troca de sala\n  /list: Lista todas as salas disponiveis\n  /name: Trocar de nome de usuario\n  /leave: Sair para sala principal\n  /help: Visualizar comandos disponíveis\n\n", requestedRoom, requestedRoom);
+          snprintf(message, sizeof(message), "\033[2J\033[H[SUCCESS] Conectado a sala %d.\n\nBem vindo a sala %d.\nComandos disponiveis:\n  /join <id da sala> <senha>: Entrar em sala\n  /list: Lista todas as salas disponiveis\n  /name: Trocar de nome de usuario\n  /leave: Sair para sala principal\n  /help: Visualizar comandos disponíveis\n\n", requestedRoom, requestedRoom);
           send(client, message, strlen(message), 0);
           printf("[INFO] Client %d switched to Room %d\n", i, requestedRoom - 1);
         }
@@ -249,7 +272,7 @@ void handleReceivedData(struct Room rooms[], int i, char *buf, int *fdmax, fd_se
       // Tratamento para comando /help, o qual lista todos os comandos disponiveis
       } else if (strncmp(buf, "/help", 4) == 0) {
         printf("[INFO] Cliente %d na sala %d executou o comando /help\n", i, rooms[indexRoom].roomNumber);
-        snprintf(message, sizeof(message), "[INFO] Comandos disponiveis:\n  /join: Troca de sala\n  /list: Lista todas as salas disponiveis\n  /name: Trocar de nome de usuario\n  /leave: Sair para sala principal\n  /help: Visualizar comandos disponíveis\n\n");
+        snprintf(message, sizeof(message), "[INFO] Comandos disponiveis:\n  /join <id da sala> <senha>: Entrar em uma sala\n  /list: Lista todas as salas disponiveis\n  /name <nome>: Trocar de nome de usuario\n  /leave: Sair para sala principal\n  /help: Visualizar comandos disponíveis\n\n");
         send(client, message, strlen(message), 0);
       } else {
         snprintf(message, sizeof(message), "[ERROR] Comando invalido.\n");
@@ -291,15 +314,18 @@ void createRoom(struct Room rooms[]) {
     return;
   }
 
-  char name[MAX_ROOM_NAME_LENGTH];
   int maxRoomClients;
+  char name[MAX_ROOM_NAME_LENGTH];
+  char roomPassword[MAX_ROOM_PASSWORD_LENGTH];
+
   printf("Digite o nome da sala: ");
   scanf("%s", name);
   clearBuffer();
   printf("Digite o número máximo de usuários da sala: ");
   scanf("%d", &maxRoomClients);
   clearBuffer();
-
+  printf("Senha de acesso (vazio para nao colocar senha): ");
+  fgets(roomPassword, sizeof(roomPassword), stdin);
 
   // Inicializa a sala com os dados informados
   int roomNumber = currentMaxRooms + 1;
@@ -308,9 +334,15 @@ void createRoom(struct Room rooms[]) {
   rooms[currentMaxRooms].maxClients = maxRoomClients;
   rooms[currentMaxRooms].clients = malloc(sizeof(struct Client) * maxRoomClients);
   snprintf(rooms[currentMaxRooms].name, MAX_ROOM_NAME_LENGTH + 1,  "%s", name);
+  
+  if (roomPassword[0] == '\0' || (strlen(roomPassword) == 1 && roomPassword[0] == '\n')) {
+    rooms[currentMaxRooms].password[0] = '\0';
+  } else {
+    roomPassword[strcspn(roomPassword, "\n")] = '\0';
+    snprintf(rooms[currentMaxRooms].password, MAX_ROOM_PASSWORD_LENGTH + 1,  "%s", roomPassword);
+  }
 
   currentMaxRooms++;
-
   printf("[SUCCESS] Sala com ID \"%d\" criada com sucesso.\n", roomNumber);
 }
 
@@ -356,7 +388,7 @@ void deleteRoom(struct Room rooms[]) {
 void listUsersFromRoom(struct Room room) {
   char message[MAX_MESSAGE_SIZE];
   if (room.numClients == 0) {
-    printf("[INFO] Nao ha ninguem na sala");
+    printf("[INFO] Nao ha ninguem na sala\n");
     return;
   }
 
@@ -369,12 +401,12 @@ void listUsersFromRoom(struct Room room) {
 
 void printCommands() {
   printf("\n[INFO] Comandos disponíveis:\n");
-  printf("/list - Lista as salas disponíveis\n");
-  printf("/users <id da sala> - Lista os usuários de uma sala\n");
-  printf("/create - Cria uma nova sala\n");
-  printf("/delete - Deleta uma sala\n");
-  printf("/help - Lista os comandos disponíveis\n");
-  printf("/exit - Encerra o servidor\n\n\n");
+  printf("  /list - Lista as salas disponíveis\n");
+  printf("  /users <id da sala> - Lista os usuários de uma sala\n");
+  printf("  /create - Cria uma nova sala\n");
+  printf("  /delete - Deleta uma sala\n");
+  printf("  /help - Lista os comandos disponíveis\n");
+  printf("  /exit - Encerra o servidor\n\n\n");
 };
 
 
