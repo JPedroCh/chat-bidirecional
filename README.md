@@ -36,6 +36,7 @@ Após iniciar a execução do programa, alguns comandos estão disponíveis para
 * **/create**: Cria uma nova sala, esse comando é dividido em 2 etapas:
   * Definição do nome da sala
   * Definição do número máximo de usuários da sala
+  * (Opcional) Definir uma senha para entrar na sala. Caso não precise de uma senha basta deixar vazio
 * **/delete**: Exclui uma sala pelo id dela, o qual deve ser informado no passo seguinte ao comando.
   * Definição da sala a ser excluída
 * **/exit**: Finaliza o programa que está sendo executado.
@@ -56,7 +57,7 @@ Após a conexão é necessário informar o nome do usuário:
 * **/name <nome do usuário>**: Define o nome do usuário conectado.
 Após a definição os seguintes comandos se tornam disponíveis:
 * **/list**: Lista as salas disponíveis com a quantidade atual de usuários na sala e o limite dela.
-* **/join <id da sala>**: Troca o usuário de sala, sendo redirecionado para a sala indicada pelo id.
+* **/join \<id da sala> \<senha>**: Troca o usuário de sala, sendo redirecionado para a sala indicada pelo id. Caso a sala escolhida possua senha é necessário informar a senha após o id da sala.
 * **/leave**: Redireciona o usuário para a sala principal(lounge).
 * **/exit**: Desconecta o cliente.
 * **/help**: Lista os comandos disponíveis para o cliente/usuário.
