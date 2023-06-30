@@ -320,6 +320,7 @@ void deleteRoom(struct Room rooms[]) {
   int roomNumber;
   printf("Digite o numero da sala: ");
   scanf("%d", &roomNumber);
+  clearBuffer();
 
   if (roomNumber > currentMaxRooms || roomNumber <= 0) {
     printf("Sala invalida.\n");
